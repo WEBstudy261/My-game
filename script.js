@@ -3,33 +3,42 @@ const CTX = CANVAS.getContext('2d');
 const GAME_WIDTH = CANVAS.width;
 const GAME_HEIGHT = CANVAS.height;
 
-// --- ゲーム状態 ---
+// --- ゲーム設定 ---
 let score = 0;
 let playerHealth = 5;
 let totalPoints = parseInt(localStorage.getItem('totalPoints') || "0");
 let gameRunning = false;
 let isUpgrading = false;
-let lastShotTime = 0;
 let enemies = [];
 let bullets = [];
+let particles = []; // 爆発エフェクト用
 let spawnTimer = 0;
+let lastShotTime = 0;
 
-// --- 強化データ ---
-let upgrades = {
-    fireRate: { level: 1, label: "連射速度", baseCost: 10 },
-    damage: { level: 1, label: "攻撃力", baseCost: 15 },
-    bulletCount: { level: 1, label: "同時弾数", baseCost: 50 },
-    speed: { level: 1, label: "弾速", baseCost: 10 }
+// プレイヤー設定（慣性システム）
+const PLAYER = {
+    x: GAME_WIDTH / 2,
+    y: GAME_HEIGHT - 60,
+    size: 20,
+    vx: 0,          // 現在の速度
+    accel: 0.9,     // 加速度
+    friction: 0.82, // 摩擦（操作感のキレ）
+    maxSpeed: 9
 };
 
-const PLAYER = { x: GAME_WIDTH / 2, y: GAME_HEIGHT - 50, size: 20, speed: 6 };
-let keys = {};
+let upgrades = {
+    fireRate: { level: 1, label: "連射速度", baseCost: 20 },
+    damage: { level: 1, label: "攻撃力", baseCost: 30 },
+    bulletCount: { level: 1, label: "拡散数", baseCost: 100 },
+    speed: { level: 1, label: "弾速", baseCost: 15 }
+};
 
-// --- イベントリスナー ---
+let keys = {};
 window.addEventListener('keydown', e => keys[e.code] = true);
 window.addEventListener('keyup', e => keys[e.code] = false);
 
-// --- 初期化 & タイトル ---
+// --- システム関数 ---
+
 function initTitle() {
     document.getElementById('total-points-display').textContent = totalPoints;
     if (localStorage.getItem('savedGame')) {
@@ -49,80 +58,99 @@ function startGame(isContinue) {
     requestAnimationFrame(gameLoop);
 }
 
-// --- メインループ ---
-function gameLoop(time) {
-    if (!gameRunning) return;
-
-    if (!isUpgrading) {
-        update();
-        draw();
+function createExplosion(x, y, color) {
+    for (let i = 0; i < 8; i++) {
+        particles.push({
+            x: x, y: y,
+            vx: (Math.random() - 0.5) * 6,
+            vy: (Math.random() - 0.5) * 6,
+            life: 20,
+            color: color
+        });
     }
-    requestAnimationFrame(gameLoop);
 }
 
 function update() {
-    // プレイヤー移動
-    if (keys['ArrowLeft'] && PLAYER.x > 10) PLAYER.x -= PLAYER.speed;
-    if (keys['ArrowRight'] && PLAYER.x < GAME_WIDTH - 10) PLAYER.x += PLAYER.speed;
+    // 慣性移動
+    if (keys['ArrowLeft']) PLAYER.vx -= PLAYER.accel;
+    if (keys['ArrowRight']) PLAYER.vx += PLAYER.accel;
+    PLAYER.vx *= PLAYER.friction;
+    PLAYER.x += PLAYER.vx;
 
-    // 自動射撃 (スペース押下時)
+    // 画面端制限
+    if (PLAYER.x < 20) { PLAYER.x = 20; PLAYER.vx = 0; }
+    if (PLAYER.x > GAME_WIDTH - 20) { PLAYER.x = GAME_WIDTH - 20; PLAYER.vx = 0; }
+
+    // 連射
     let fireInterval = 400 / upgrades.fireRate.level;
     if (keys['Space'] && Date.now() - lastShotTime > fireInterval) {
         shoot();
         lastShotTime = Date.now();
     }
 
-    // 強化ボタンの表示チェック
-    if (score >= 10) {
-        document.getElementById('upgrade-trigger').classList.remove('hidden');
-    }
+    if (score >= 10) document.getElementById('upgrade-trigger').classList.remove('hidden');
 
-    // 敵の生成
+    // 敵の生成（スピードを遅く調整）
     spawnTimer++;
-    if (spawnTimer > 100) {
-        enemies.push({ x: Math.random() * (GAME_WIDTH - 30) + 15, y: -20, size: 30, health: 3 });
+    if (spawnTimer > 80) {
+        enemies.push({
+            x: Math.random() * (GAME_WIDTH - 40) + 20,
+            y: -30,
+            size: 30,
+            health: 3 * (1 + score/200),
+            speed: 1.0 + Math.random() * 0.5 // 以前よりゆっくり
+        });
         spawnTimer = 0;
     }
 
-    // 移動処理
+    // パーティクル更新
+    particles.forEach((p, i) => {
+        p.x += p.vx; p.y += p.vy; p.life--;
+        if (p.life <= 0) particles.splice(i, 1);
+    });
+
+    // 弾丸更新
     bullets.forEach((b, i) => {
         b.y -= b.speed;
         if (b.y < 0) bullets.splice(i, 1);
     });
 
+    // 敵更新
     enemies.forEach((e, i) => {
-        e.y += 2;
+        e.y += e.speed;
         if (e.y > GAME_HEIGHT) {
             enemies.splice(i, 1);
             playerHealth--;
             if (playerHealth <= 0) endGame();
         }
 
-        // 当たり判定
         bullets.forEach((b, bi) => {
-            if (Math.hypot(e.x - b.x, e.y - b.y) < e.size/2 + b.r) {
+            if (Math.hypot(e.x - b.x, e.y - b.y) < 15 + b.r) {
                 e.health -= b.dmg;
-                bullets.splice(bi, 1);
+                bullets.splice(bi, bi + 1);
+                createExplosion(b.x, b.y, "#fff"); // ヒット火花
                 if (e.health <= 0) {
+                    createExplosion(e.x, e.y, "#f00"); // 撃破爆発
                     enemies.splice(i, 1);
-                    score += 1;
+                    score += 5;
                 }
             }
         });
     });
 
-    document.getElementById('score-display').textContent = score;
+    document.getElementById('score-display').textContent = Math.floor(score);
     document.getElementById('health-display').textContent = playerHealth;
 }
 
 function shoot() {
     const count = upgrades.bulletCount.level;
     for (let i = 0; i < count; i++) {
+        let offset = (i - (count - 1) / 2) * 15;
         bullets.push({
-            x: PLAYER.x + (i - (count-1)/2) * 10,
-            y: PLAYER.y,
-            r: 5,
-            speed: 7 + upgrades.speed.level,
+            x: PLAYER.x + offset,
+            y: PLAYER.y - 10,
+            r: 4,
+            speed: 8 + upgrades.speed.level,
             dmg: upgrades.damage.level
         });
     }
@@ -132,28 +160,45 @@ function draw() {
     CTX.fillStyle = '#000';
     CTX.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    // プレイヤー
+    // プレイヤー（ネオン風）
+    CTX.shadowBlur = 10; CTX.shadowColor = '#0f0';
     CTX.fillStyle = '#0f0';
     CTX.fillRect(PLAYER.x - 10, PLAYER.y - 10, 20, 20);
 
     // 敵
-    CTX.fillStyle = '#f00';
-    enemies.forEach(e => CTX.fillRect(e.x - 15, e.y - 15, 30, 30));
+    CTX.shadowColor = '#f00';
+    enemies.forEach(e => {
+        CTX.fillStyle = '#f33';
+        CTX.fillRect(e.x - 15, e.y - 15, 30, 30);
+    });
 
     // 弾
+    CTX.shadowColor = '#ff0';
     CTX.fillStyle = '#ff0';
     bullets.forEach(b => {
-        CTX.beginPath();
-        CTX.arc(b.x, b.y, b.r, 0, Math.PI*2);
-        CTX.fill();
+        CTX.beginPath(); CTX.arc(b.x, b.y, b.r, 0, Math.PI*2); CTX.fill();
     });
+
+    // パーティクル
+    CTX.shadowBlur = 0;
+    particles.forEach(p => {
+        CTX.fillStyle = p.color;
+        CTX.globalAlpha = p.life / 20;
+        CTX.fillRect(p.x, p.y, 3, 3);
+    });
+    CTX.globalAlpha = 1;
 }
 
-// --- 強化システム ---
+function gameLoop() {
+    if (!gameRunning) return;
+    if (!isUpgrading) { update(); draw(); }
+    requestAnimationFrame(gameLoop);
+}
+
 function openUpgrade() {
     isUpgrading = true;
     document.getElementById('upgrade-screen').classList.remove('hidden');
-    document.getElementById('upgrade-score').textContent = score;
+    document.getElementById('upgrade-score').textContent = Math.floor(score);
     renderUpgrades();
 }
 
@@ -164,7 +209,7 @@ function renderUpgrades() {
         let up = upgrades[key];
         let cost = up.level * up.baseCost;
         let btn = document.createElement('button');
-        btn.innerHTML = `${up.label} Lv.${up.level}<br>(Cost: ${cost})`;
+        btn.innerHTML = `${up.label} Lv.${up.level}<br>COST: ${cost}`;
         btn.onclick = () => {
             if (score >= cost) {
                 score -= cost;
@@ -179,22 +224,19 @@ function renderUpgrades() {
 function closeUpgrade() {
     isUpgrading = false;
     document.getElementById('upgrade-screen').classList.add('hidden');
-    if (score < 10) document.getElementById('upgrade-trigger').classList.add('hidden');
 }
 
-// --- セーブ & 終了 ---
 function saveAndQuit() {
-    const saveData = { upgrades, score, health: playerHealth };
-    localStorage.setItem('savedGame', JSON.stringify(saveData));
+    localStorage.setItem('savedGame', JSON.stringify({ upgrades, score, health: playerHealth }));
     location.reload();
 }
 
 function endGame() {
     gameRunning = false;
-    totalPoints += score;
+    totalPoints += Math.floor(score);
     localStorage.setItem('totalPoints', totalPoints);
-    localStorage.removeItem('savedGame'); // 死んだら続きからは消去
-    document.getElementById('final-score').textContent = score;
+    localStorage.removeItem('savedGame');
+    document.getElementById('final-score').textContent = Math.floor(score);
     document.getElementById('game-over-screen').classList.remove('hidden');
 }
 
