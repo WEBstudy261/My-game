@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>強化シューティング - Steam Edition Project</title>
+    <style>
+        body { display: flex; flex-direction: column; align-items: center; background: #1a1a1a; color: white; font-family: sans-serif; margin: 0; overflow: hidden; }
+        #game-area { position: relative; width: 600px; height: 700px; background: #000; margin-top: 20px; border: 3px solid #444; }
+        canvas { width: 100%; height: 100%; display: block; }
+        
+        /* UI共通 */
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(0,0,0,0.85); z-index: 100; }
+        .hidden { display: none !important; }
+
+        /* 強化通知ボタン */
+        #upgrade-trigger { 
+            position: absolute; top: 20px; right: 20px; padding: 15px 20px; 
+            background: #ffd700; color: #000; border: none; border-radius: 8px; 
+            font-weight: bold; cursor: pointer; animation: pulse 1.5s infinite; z-index: 50;
+        }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+
+        button { padding: 10px 25px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; font-size: 16px; background: #4CAF50; color: white; }
+        button:hover { background: #45a049; }
+        .stats { font-size: 18px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+    <div id="game-area">
+        <canvas id="game-canvas" width="600" height="700"></canvas>
+
+        <div id="title-screen" class="overlay">
+            <h1>CUBE SHOOTER</h1>
+            <p>累計ポイント: <span id="total-points-display">0</span></p>
+            <button onclick="startGame(false)">NEW GAME</button>
+            <button id="btn-continue" class="hidden" onclick="startGame(true)">CONTINUE</button>
+        </div>
+
+        <button id="upgrade-trigger" class="hidden" onclick="openUpgrade()">UPGRADE READY!</button>
+
+        <div id="upgrade-screen" class="overlay hidden">
+            <h2>CUSTOMIZE</h2>
+            <div class="stats">SCORE: <span id="upgrade-score">0</span></div>
+            <div id="upgrade-list">
+                </div>
+            <button style="background:#555" onclick="closeUpgrade()">RESUME</button>
+            <button style="background:#444" onclick="saveAndQuit()">SAVE & EXIT</button>
+        </div>
+
+        <div id="game-over-screen" class="overlay hidden">
+            <h2 style="color:#ff4444">MISSION FAILED</h2>
+            <p>今回獲得ポイント: <span id="final-score">0</span></p>
+            <button onclick="location.reload()">TITLE</button>
+        </div>
+    </div>
+
+    <div id="hud" style="width:600px; display:flex; justify-content: space-between; padding: 10px;">
+        <span>SCORE: <span id="score-display">0</span></span>
+        <span>HEALTH: <span id="health-display">5</span></span>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
